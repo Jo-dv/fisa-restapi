@@ -184,10 +184,37 @@ public class ProductController {
 
     // 4. 상품 수정
     @PutMapping("/{id}")
-    public ResponseEntity<ProductResDto> updateProduct(
+    public ResponseEntity<ProductSingleResDto> updateProduct(
             @PathVariable Long id,
             @Valid @RequestBody ProductReqDto reqDto) {
-        return ResponseEntity.ok(productService.updateProduct(id, reqDto));
+        // 1. 현재 로그인한 사용자 식별자 추출
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+        // 2. 서비스 호출 (username 전달)
+        ProductResDto resDto = productService.updateProduct(id, reqDto, username);
+
+        // 3. HATEOAS 링크 구성
+        WebMvcLinkBuilder baseLink = linkTo(ProductController.class);
+        String selfUri = baseLink.toString() + "/" + resDto.id();
+
+        Map<String, Object> links = new LinkedHashMap<>();
+        links.put("self", Map.of("href", selfUri));
+        links.put("profile", Map.of("href", "/swagger-ui/index.html"));
+        links.put("list-products", Map.of("href", baseLink.toString() + "?page=0&size=10{&category}", "templated", true, "type", "GET"));
+        links.put("delete-product", Map.of("href", selfUri, "type", "DELETE"));
+
+        ProductSingleResDto response = new ProductSingleResDto(
+                resDto.id(),
+                resDto.name(),
+                resDto.description(),
+                resDto.price(),
+                resDto.stock(),
+                resDto.category(),
+                resDto.userId(),
+                links
+        );
+
+        return ResponseEntity.ok(response);
     }
 
     // 5. 상품 삭제
