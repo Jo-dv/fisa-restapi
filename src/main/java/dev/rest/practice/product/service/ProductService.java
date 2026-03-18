@@ -69,9 +69,28 @@ public class ProductService {
     }
 
     @Transactional
-    public void deleteProduct(Long id) {
-        Product product = findProductOrThrow(id);
+    public ProductResDto deleteProduct(Long id, String username) {
+        // 1. 현재 요청을 보낸 유저 정보 조회 (PK 확보)
+        User currentUser = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+
+        // 2. 수정할 상품 조회
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "등록된 상품을 찾을 수 없습니다."));
+
+        // 3. 권한 검증: 상품의 작성자 ID와 현재 로그인한 사용자의 ID(PK) 비교
+        if (!product.getUser().getId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "본인이 등록한 상품만 삭제할 수 있습니다.");
+        }
+
+        // 삭제 전 응답용 DTO 생성
+        ProductResDto deletedProductDto = ProductResDto.from(product);
+
         productRepository.delete(product);
+
+        System.out.println("DB 삭제 및 DTO 변환 성공!"); // 여기까지 도달하는지 확인
+
+        return deletedProductDto;
     }
 
     private Product findProductOrThrow(Long id) {

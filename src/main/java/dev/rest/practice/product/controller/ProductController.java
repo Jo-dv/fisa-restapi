@@ -9,6 +9,7 @@ import dev.rest.practice.user.entity.User;
 import dev.rest.practice.user.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -34,6 +35,7 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RestController
 @RequestMapping("/api/products")
 @RequiredArgsConstructor
+@Slf4j
 public class ProductController {
 
     private final ProductService productService;
@@ -219,8 +221,39 @@ public class ProductController {
 
     // 5. 상품 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-        productService.deleteProduct(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<ProductSingleResDto> deleteProduct(@PathVariable Long id) {
+        // 1. 현재 로그인한 사용자 식별자 추출
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+        // 2. 서비스 호출 및 삭제된 상품 데이터 반환받기
+        ProductResDto resDto = productService.deleteProduct(id, username);
+
+        // 3. 서비스 호출 (권한 검증 및 삭제 진행)
+//        productService.deleteProduct(id, username);
+
+        WebMvcLinkBuilder baseLink = linkTo(ProductController.class);
+        String selfUri = baseLink.toString() + "/" + resDto.id();
+
+        Map<String, Object> links = new LinkedHashMap<>();
+        links.put("self", Map.of("href", selfUri));
+        links.put("profile", Map.of("href", "/swagger-ui/index.html"));
+        links.put("list-products", Map.of(
+                "href", baseLink.toString() + "?page=0&size=10{&category}",
+                "type", "GET",
+                "templated", true
+        ));
+
+        ProductSingleResDto response = new ProductSingleResDto(
+                resDto.id(),
+                resDto.name(),
+                resDto.description(),
+                resDto.price(),
+                resDto.stock(),
+                resDto.category(),
+                resDto.userId(),
+                links
+        );
+        System.out.println("response = " + response);
+        return ResponseEntity.ok(response);
     }
 }
