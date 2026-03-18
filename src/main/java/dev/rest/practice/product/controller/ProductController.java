@@ -3,7 +3,10 @@ package dev.rest.practice.product.controller;
 import dev.rest.practice.product.dto.ProductPageResDto;
 import dev.rest.practice.product.dto.ProductReqDto;
 import dev.rest.practice.product.dto.ProductResDto;
+import dev.rest.practice.product.dto.ProductSingleResDto;
 import dev.rest.practice.product.service.ProductService;
+import dev.rest.practice.user.entity.User;
+import dev.rest.practice.user.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -16,6 +19,7 @@ import org.springframework.hateoas.UriTemplate;
 import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,6 +37,7 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 public class ProductController {
 
     private final ProductService productService;
+    private final UserRepository userRepository;
 
     // 1. 상품 등록
     @PostMapping
@@ -112,8 +117,69 @@ public class ProductController {
 
     // 3. 상품 상세 조회
     @GetMapping("/{id}")
-    public ResponseEntity<ProductResDto> getProductById(@PathVariable Long id) {
-        return ResponseEntity.ok(productService.getProductById(id));
+    public ResponseEntity<ProductSingleResDto> getProductById(@PathVariable Long id) {
+        ProductResDto resDto = productService.getProductById(id);
+
+        // 1. 인증 정보 확인
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAuthenticated = auth != null && auth.isAuthenticated() && !auth.getName().equals("anonymousUser");
+
+        boolean isOwner = false;
+        if (isAuthenticated) {
+            // 현재 인증된 사용자의 username으로 DB에서 User 객체를 찾아 ID를 비교
+            User currentUser = userRepository.findByUsername(auth.getName()).orElse(null);
+            if (currentUser != null && currentUser.getId().equals(resDto.userId())) {
+                isOwner = true;
+            }
+        }
+
+        // 2. 기본 URI 추출
+        WebMvcLinkBuilder baseLink = linkTo(ProductController.class);
+        String selfUri = baseLink.toString() + "/" + id;
+
+        // 3. 링크 맵 동적 구성
+        Map<String, Object> links = new LinkedHashMap<>();
+
+        // 기본 링크 (self, profile)
+        links.put("self", Map.of("href", selfUri));
+        links.put("profile", Map.of("href", "/swagger-ui/index.html"));
+
+        // 인증된 사용자일 경우 추가 링크
+        if (isAuthenticated) {
+            // 재고가 있을 경우 order 링크 추가
+            if (resDto.stock() != null && resDto.stock() > 0) {
+                links.put("order", Map.of(
+                        "href", "/api/orders",
+                        "type", "POST"
+                ));
+            }
+
+            // 자신이 등록한 상품일 경우 update, delete 링크 추가
+            if (isOwner) {
+                links.put("update-product", Map.of(
+                        "href", selfUri,
+                        "type", "PUT"
+                ));
+                links.put("delete-product", Map.of(
+                        "href", selfUri,
+                        "type", "DELETE"
+                ));
+            }
+        }
+
+        // 4. DTO 매핑 (_links가 맨 마지막에 배치됨)
+        ProductSingleResDto response = new ProductSingleResDto(
+                resDto.id(),
+                resDto.name(),
+                resDto.description(),
+                resDto.price(),
+                resDto.stock(),
+                resDto.category(),
+                resDto.userId(),
+                links
+        );
+
+        return ResponseEntity.ok(response);
     }
 
     // 4. 상품 수정
